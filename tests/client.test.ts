@@ -1,7 +1,7 @@
 import { deepStrictEqual, rejects, strictEqual } from 'node:assert';
 import { describe, it } from 'node:test';
 
-import { createOhne, escapeHTML } from '../index.js';
+import { connect, createOhne, escapeHTML } from '../index.js';
 
 /**
  * A `fetch` that records each request and answers `body` with `status`.
@@ -31,14 +31,11 @@ describe('createOhne', () => {
     strictEqual(calls[0]?.url, 'http://api.test/cms/routes/resolve?path=%2Fabout');
   });
 
-  it('passes the locale and the extra fetch options', async () => {
+  it('encodes the path and passes the extra fetch options', async () => {
     const { calls, fetch } = fakeFetch({ kind: 'notFound' });
     const ohne = createOhne({ api: 'http://api.test', fetch, fetchInit: { cache: 'no-store' } });
-    await ohne.resolve('/über uns', { locale: 'de' });
-    strictEqual(
-      calls[0]?.url,
-      'http://api.test/cms/routes/resolve?path=%2F%C3%BCber+uns&locale=de',
-    );
+    await ohne.resolve('/de/über uns');
+    strictEqual(calls[0]?.url, 'http://api.test/cms/routes/resolve?path=%2Fde%2F%C3%BCber+uns');
     strictEqual(calls[0]?.init?.cache, 'no-store');
   });
 
@@ -60,5 +57,20 @@ describe('escapeHTML', () => {
     strictEqual(escapeHTML(null), '');
     strictEqual(escapeHTML(undefined), '');
     strictEqual(escapeHTML(42), '42');
+  });
+});
+
+describe('connect and previewScript', () => {
+  it('connects nothing outside a browser frame', () => {
+    const preview = connect({ api: 'http://api.test' });
+    preview.dispose();
+  });
+
+  it('prints a module script that connects on its own', () => {
+    const ohne = createOhne({ api: 'http://api.test/' });
+    strictEqual(
+      ohne.previewScript(),
+      '<script type="module" src="http://api.test/cms/preview.js?auto"></script>',
+    );
   });
 });

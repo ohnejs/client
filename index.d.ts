@@ -22,17 +22,6 @@ export interface OhneOptions {
 }
 
 /**
- * Options for `Ohne.resolve`.
- */
-export interface ResolveOptions {
-  /**
-   * The locale to read the page in.
-   * Omitted, the path's locale prefix decides, then the default locale.
-   */
-  locale?: string;
-}
-
-/**
  * A page the path names: the record a route pattern matched, read as a public visitor reads it.
  */
 export interface ResolvedPage {
@@ -88,11 +77,58 @@ export type Resolved = ResolvedPage | ResolvedNotFound;
  */
 export interface Ohne {
   /**
-   * Resolves a site path, like `'/blog/hello'`, to the page it names.
+   * Resolves a site path, like `'/blog/hello'` or `'/de/ueber-uns'`, to the page it names.
+   * The path's locale prefix picks the locale.
    * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws.
    */
-  resolve(path: string, options?: ResolveOptions): Promise<Resolved>;
+  resolve(path: string): Promise<Resolved>;
+
+  /**
+   * The `<script>` tag that connects a server-rendered page to the editor that frames it.
+   * Put it at the end of `<body>`; outside a frame it does nothing.
+   * A save in the editor then reloads the page.
+   */
+  previewScript(): string;
 }
+
+/**
+ * Options for `connect`.
+ */
+export interface ConnectOptions {
+  /**
+   * The origin of the ohne API that serves the preview script.
+   */
+  api: string;
+
+  /**
+   * Shows the newest saved page, like `router.refresh()` or `refreshNuxtData()`.
+   * Omitted, the editor reloads the frame instead.
+   */
+  onRefresh?: () => void;
+}
+
+/**
+ * A connection to the editor that frames the page.
+ */
+export interface Preview {
+  /**
+   * Disconnects and removes the outlines it draws.
+   */
+  dispose(): void;
+}
+
+/**
+ * Connects the page to the ohne editor that frames it, so clicking a block selects it there.
+ * Outside a frame, as on the live site, it does nothing.
+ * Call it in the browser once the page has rendered, and dispose it on unmount.
+ *
+ * @example
+ * ```ts
+ * const preview = connect({ api: 'http://localhost:4000' })
+ * preview.dispose()
+ * ```
+ */
+export function connect(options: ConnectOptions): Preview;
 
 /**
  * Creates a client of the ohne API at `options.api`.

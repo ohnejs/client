@@ -1,4 +1,4 @@
-/** @import { Ohne, OhneOptions, Resolved, ResolveOptions } from './index.d.ts' */
+/** @import { ConnectOptions, Ohne, OhneOptions, Preview, Resolved } from './index.d.ts' */
 
 /**
  * @param {OhneOptions} options
@@ -11,15 +11,38 @@ export function createOhne(options) {
   return {
     /**
      * @param {string} path
-     * @param {ResolveOptions} [resolveOptions]
      * @returns {Promise<Resolved>}
      */
-    async resolve(path, resolveOptions = {}) {
+    async resolve(path) {
       const query = new URLSearchParams({ path });
-      if (resolveOptions.locale !== undefined) query.set('locale', resolveOptions.locale);
       const response = await send(`${api}/cms/routes/resolve?${query}`, options.fetchInit);
       if (!response.ok) throw new Error(`ohne answered ${response.status} resolving ${path}`);
       return /** @type {Promise<Resolved>} */ (response.json());
+    },
+
+    previewScript() {
+      return `<script type="module" src="${escapeHTML(`${api}/cms/preview.js?auto`)}"></script>`;
+    },
+  };
+}
+
+/**
+ * @param {ConnectOptions} options
+ * @returns {Preview}
+ */
+export function connect(options) {
+  if (typeof window === 'undefined' || window.parent === window) return { dispose() {} };
+  const url = `${options.api.replace(/\/+$/, '')}/cms/preview.js`;
+  /** @type {Preview | undefined} */
+  let inner;
+  let disposed = false;
+  void import(/* webpackIgnore: true */ /* @vite-ignore */ url).then((module) => {
+    if (!disposed) inner = module.connect({ onRefresh: options.onRefresh });
+  });
+  return {
+    dispose() {
+      disposed = true;
+      inner?.dispose();
     },
   };
 }
