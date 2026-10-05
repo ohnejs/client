@@ -22,6 +22,17 @@ export interface OhneOptions {
 }
 
 /**
+ * Options for `Ohne.resolve`.
+ */
+export interface ResolveOptions {
+  /**
+   * The preview token of the editor framing the page, from `Ohne.token`.
+   * It lays the editor's unsaved changes over the page; an unknown or expired token is ignored.
+   */
+  token?: string;
+}
+
+/**
  * A page the path names: the record a route pattern matched, read as a public visitor reads it.
  */
 export interface ResolvedPage {
@@ -81,7 +92,18 @@ export interface Ohne {
    * The path's locale prefix picks the locale.
    * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws.
    */
-  resolve(path: string): Promise<Resolved>;
+  resolve(path: string, options?: ResolveOptions): Promise<Resolved>;
+
+  /**
+   * The preview token a request carries, from its `ohne-preview` query param, or `undefined`.
+   * Pass it to `resolve`, and answer with `previewHeaders` while it is set.
+   */
+  token(request: Request | { url: string } | string): string | undefined;
+
+  /**
+   * The headers a page answers with while it shows a preview: never cached, never indexed.
+   */
+  previewHeaders(): Record<string, string>;
 
   /**
    * The `<script>` tag that connects a server-rendered page to the editor that frames it.
@@ -101,10 +123,16 @@ export interface ConnectOptions {
   api: string;
 
   /**
-   * Shows the newest saved page, like `router.refresh()` or `refreshNuxtData()`.
-   * Omitted, the editor reloads the frame instead.
+   * Shows the page again with the newest unsaved changes, like `router.refresh()` or `refreshNuxtData()`.
+   * Omitted, the page refetches itself and swaps its body in.
    */
   onRefresh?: () => void;
+
+  /**
+   * Shows a page the editor resolved with the newest unsaved changes, with no fetch.
+   * It wins over `onRefresh`, for a page rendered in the browser.
+   */
+  onData?: (page: Resolved) => void;
 }
 
 /**

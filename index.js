@@ -1,4 +1,4 @@
-/** @import { ConnectOptions, Ohne, OhneOptions, Preview, Resolved } from './index.d.ts' */
+/** @import { ConnectOptions, Ohne, OhneOptions, Preview, Resolved, ResolveOptions } from './index.d.ts' */
 
 /**
  * @param {OhneOptions} options
@@ -11,13 +11,26 @@ export function createOhne(options) {
   return {
     /**
      * @param {string} path
+     * @param {ResolveOptions} [resolveOptions]
      * @returns {Promise<Resolved>}
      */
-    async resolve(path) {
+    async resolve(path, resolveOptions = {}) {
       const query = new URLSearchParams({ path });
-      const response = await send(`${api}/cms/routes/resolve?${query}`, options.fetchInit);
+      const init = options.fetchInit ?? {};
+      const headers = new Headers(init.headers);
+      if (resolveOptions.token) headers.set('ohne-preview', resolveOptions.token);
+      const response = await send(`${api}/cms/routes/resolve?${query}`, { ...init, headers });
       if (!response.ok) throw new Error(`ohne answered ${response.status} resolving ${path}`);
       return /** @type {Promise<Resolved>} */ (response.json());
+    },
+
+    token(request) {
+      const url = typeof request === 'string' ? request : request.url;
+      return new URL(url, 'http://site').searchParams.get('ohne-preview') ?? undefined;
+    },
+
+    previewHeaders() {
+      return { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex' };
     },
 
     previewScript() {
@@ -37,7 +50,7 @@ export function connect(options) {
   let inner;
   let disposed = false;
   void import(/* webpackIgnore: true */ /* @vite-ignore */ url).then((module) => {
-    if (!disposed) inner = module.connect({ onRefresh: options.onRefresh });
+    if (!disposed) inner = module.connect({ onRefresh: options.onRefresh, onData: options.onData });
   });
   return {
     dispose() {

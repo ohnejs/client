@@ -74,3 +74,26 @@ describe('connect and previewScript', () => {
     );
   });
 });
+
+describe('preview helpers', () => {
+  const ohne = createOhne({ api: 'http://api.test' });
+
+  it('sends the preview token as a header', async () => {
+    const { calls, fetch } = fakeFetch({ kind: 'notFound' });
+    await createOhne({ api: 'http://api.test', fetch }).resolve('/', { token: 'tok' });
+    strictEqual(new Headers(calls[0]?.init?.headers).get('ohne-preview'), 'tok');
+  });
+
+  it('reads the token from a request or a URL', () => {
+    strictEqual(ohne.token(new Request('http://site.test/about?ohne-preview=tok')), 'tok');
+    strictEqual(ohne.token('/about?ohne-preview=tok'), 'tok');
+    strictEqual(ohne.token('/about'), undefined);
+  });
+
+  it('answers a preview with no caching and no indexing', () => {
+    deepStrictEqual(ohne.previewHeaders(), {
+      'cache-control': 'private, no-store',
+      'x-robots-tag': 'noindex',
+    });
+  });
+});
