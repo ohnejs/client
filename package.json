@@ -1,0 +1,43 @@
+{
+  "name": "@ohnejs/client",
+  "version": "0.0.1",
+  "description": "Reads pages from an ohne CMS and wires its live preview, for any frontend.",
+  "homepage": "https://github.com/ohnejs/client#readme",
+  "license": "MIT",
+  "author": "Muris Ceman <muris@ohne.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ohnejs/client.git"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "format": "oxfmt",
+    "lint": "oxlint",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "oxfmt": "0.55.0",
+    "oxlint": "1.70.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@11.5.1"
+}
