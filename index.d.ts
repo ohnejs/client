@@ -204,6 +204,15 @@ export interface ConnectOptions {
    * It wins over `onRefresh`, for a page rendered in the browser.
    */
   onData?: (page: Resolved) => void;
+
+  /**
+   * Leaves the preview token in the address bar, for a framework that renders again from the URL on the server.
+   * Next's `router.refresh()` needs it; a page that keeps the token itself, as Nuxt's `useState`, does not.
+   *
+   * @default
+   * false
+   */
+  keepToken?: boolean;
 }
 
 /**

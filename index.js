@@ -74,7 +74,9 @@ export function connect(options) {
   let inner;
   let disposed = false;
   void import(/* webpackIgnore: true */ /* @vite-ignore */ url).then((module) => {
-    if (!disposed) inner = module.connect({ onRefresh: options.onRefresh, onData: options.onData });
+    if (disposed) return;
+    const { onRefresh, onData, keepToken } = options;
+    inner = module.connect({ onRefresh, onData, keepToken });
   });
   return {
     dispose() {
