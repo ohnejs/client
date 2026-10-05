@@ -63,9 +63,69 @@ export interface ResolvedPage {
 
   /**
    * The record, with the relations inside its blocks loaded and upload URLs absolute.
-   * Each block reads as `{ block, UUID, fields }`.
+   * Each block reads as `{ block, UUID, fields }`; a related page carries its `path`.
    */
   record: Record<string, unknown>;
+
+  /**
+   * What the page's `<head>` says, from its own SEO fields and the site's settings.
+   */
+  seo: SEO;
+
+  /**
+   * The page in every locale it has, for `hreflang` links; empty on a site with one locale.
+   */
+  alternates: { hreflang: string; href: string }[];
+}
+
+/**
+ * What a page's `<head>` says about it.
+ */
+export interface SEO {
+  /**
+   * The full title, through the site's title template.
+   */
+  title: string;
+
+  /**
+   * The page's description, or the site's default.
+   */
+  description?: string;
+
+  /**
+   * The share image's URL, the page's or the site's default.
+   */
+  image?: string;
+
+  /**
+   * `'noindex'` when the page or the whole site stays out of search engines.
+   */
+  robots?: string;
+
+  /**
+   * The page's canonical URL, absolute when the cms knows the site's URL.
+   */
+  canonical: string;
+}
+
+/**
+ * A path that sends the visitor elsewhere.
+ */
+export interface ResolvedRedirect {
+  /**
+   * Marks a redirect.
+   */
+  kind: 'redirect';
+
+  /**
+   * Where to send the visitor: a path on the site, or a full URL.
+   */
+  to: string;
+
+  /**
+   * The HTTP status to answer with.
+   */
+  code: 301 | 302 | 307 | 308;
 }
 
 /**
@@ -76,12 +136,17 @@ export interface ResolvedNotFound {
    * Marks a path no page answers.
    */
   kind: 'notFound';
+
+  /**
+   * The record of the page with the slug `404`, to render with a `404` status, when the site has one.
+   */
+  page?: Record<string, unknown>;
 }
 
 /**
  * What a path resolves to.
  */
-export type Resolved = ResolvedPage | ResolvedNotFound;
+export type Resolved = ResolvedPage | ResolvedRedirect | ResolvedNotFound;
 
 /**
  * A client of one ohne API.
@@ -104,6 +169,12 @@ export interface Ohne {
    * The headers a page answers with while it shows a preview: never cached, never indexed.
    */
   previewHeaders(): Record<string, string>;
+
+  /**
+   * The `<head>` tags of a page as HTML: title, description, share tags, canonical, and `hreflang` links.
+   * With a preview token it asks search engines to stay away too.
+   */
+  renderHead(page: ResolvedPage, options?: { token?: string }): string;
 
   /**
    * The `<script>` tag that connects a server-rendered page to the editor that frames it.
@@ -182,3 +253,41 @@ export function createOhne(options: OhneOptions): Ohne;
  * ```
  */
 export function escapeHTML(value: unknown): string;
+
+/**
+ * A change the cms told a webhook about.
+ */
+export interface WebhookEvent {
+  /**
+   * What happened to the records.
+   */
+  event: 'create' | 'update' | 'delete';
+
+  /**
+   * The collection they belong to, like `Pages`, `Site`, or `Redirects`.
+   */
+  collection: string;
+
+  /**
+   * The `UUID`s of the changed records.
+   */
+  uuids: string[];
+
+  /**
+   * When the change was committed, in epoch milliseconds.
+   */
+  at: number;
+}
+
+/**
+ * Checks a webhook request the cms sent, answering its event, or `null` when the signature is wrong or stale.
+ * A signature older than five minutes is refused, so a captured request cannot be replayed later.
+ *
+ * @example
+ * ```ts
+ * const event = await verifyWebhook(request, process.env.OHNE_WEBHOOK_SECRET!)
+ * if (event === null) return new Response(null, { status: 401 })
+ * revalidateTag('ohne')
+ * ```
+ */
+export function verifyWebhook(request: Request, secret: string): Promise<WebhookEvent | null>;

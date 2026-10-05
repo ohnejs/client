@@ -1,7 +1,8 @@
 import { deepStrictEqual, rejects, strictEqual } from 'node:assert';
+import { createHmac } from 'node:crypto';
 import { describe, it } from 'node:test';
 
-import { connect, createOhne, escapeHTML } from '../index.js';
+import { connect, createOhne, escapeHTML, verifyWebhook } from '../index.js';
 
 /**
  * A `fetch` that records each request and answers `body` with `status`.
@@ -95,5 +96,65 @@ describe('preview helpers', () => {
       'cache-control': 'private, no-store',
       'x-robots-tag': 'noindex',
     });
+  });
+});
+
+describe('renderHead', () => {
+  const page = {
+    kind: 'page' as const,
+    collection: 'Pages',
+    UUID: 'u1',
+    locale: 'en',
+    path: '/about',
+    record: {},
+    seo: {
+      title: 'About "us" | Acme',
+      description: 'Who we are',
+      canonical: 'https://example.com/about',
+    },
+    alternates: [{ hreflang: 'de', href: 'https://example.com/de/ueber-uns' }],
+  };
+
+  it('renders the title, description, share tags, canonical, and alternates', () => {
+    strictEqual(
+      createOhne({ api: 'http://api.test' }).renderHead(page),
+      '<title>About &quot;us&quot; | Acme</title>' +
+        '<meta name="description" content="Who we are">' +
+        '<meta property="og:title" content="About &quot;us&quot; | Acme">' +
+        '<meta property="og:description" content="Who we are">' +
+        '<link rel="canonical" href="https://example.com/about">' +
+        '<link rel="alternate" hreflang="de" href="https://example.com/de/ueber-uns">',
+    );
+  });
+
+  it('keeps a preview out of search engines', () => {
+    const head = createOhne({ api: 'http://api.test' }).renderHead(page, { token: 'tok' });
+    strictEqual(head.includes('<meta name="robots" content="noindex">'), true);
+  });
+});
+
+describe('verifyWebhook', () => {
+  const secret = 'a-webhook-secret-of-some-length';
+  const body = JSON.stringify({ event: 'update', collection: 'Pages', uuids: ['u1'], at: 1 });
+
+  const signed = (t: number, content = body) =>
+    new Request('http://site.test/hook', {
+      method: 'POST',
+      headers: {
+        'ohne-signature': `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${body}`).digest('base64url')}`,
+      },
+      body: content,
+    });
+
+  it('answers the event of a fresh, correctly signed request', async () => {
+    const event = await verifyWebhook(signed(Math.floor(Date.now() / 1000)), secret);
+    deepStrictEqual(event, JSON.parse(body));
+  });
+
+  it('refuses a stale signature, a tampered body, and a wrong secret', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    strictEqual(await verifyWebhook(signed(now - 600), secret), null);
+    strictEqual(await verifyWebhook(signed(now, body.replace('u1', 'u2')), secret), null);
+    strictEqual(await verifyWebhook(signed(now), 'another-secret-entirely'), null);
   });
 });
