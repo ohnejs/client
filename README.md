@@ -38,7 +38,8 @@ page again and swaps its `<body>`.
 
 `verifyWebhook(request, secret)` checks a webhook the cms sent and answers its event, or `null`.
 
-## Recipes
+## Docs
 
-The [cms README](https://github.com/ohnejs/cms#recipes) shows the whole loop for Nuxt, Next, React,
-and a plain server.
+[Your website](https://ohne.dev/docs/cms/website) explains reading pages and the live preview.
+[Frameworks](https://ohne.dev/docs/cms/frameworks) shows the whole loop for Nuxt, Next, React, and
+plain HTML.
