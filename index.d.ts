@@ -258,6 +258,7 @@ export function createOhne(options: OhneOptions): Ohne;
  * @example
  * ```ts
  * escapeHTML('<b>"hi"</b>') // -> '&lt;b&gt;&quot;hi&quot;&lt;/b&gt;'
+ * escapeHTML("it's")        // -> 'it&apos;s'
  * escapeHTML(undefined)     // -> ''
  * ```
  */

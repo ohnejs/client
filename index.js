@@ -91,7 +91,7 @@ const ENTITIES = /** @type {Record<string, string>} */ ({
   '<': '&lt;',
   '>': '&gt;',
   '"': '&quot;',
-  "'": '&#39;',
+  "'": '&apos;',
 });
 
 /**

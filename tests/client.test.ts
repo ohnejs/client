@@ -50,8 +50,12 @@ describe('escapeHTML', () => {
   it('escapes the characters that break out of text or a quoted attribute', () => {
     strictEqual(
       escapeHTML(`<a href="x">'&'</a>`),
-      '&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;',
+      '&lt;a href=&quot;x&quot;&gt;&apos;&amp;&apos;&lt;/a&gt;',
     );
+  });
+
+  it('escapes an apostrophe as `&apos;`', () => {
+    strictEqual(escapeHTML("it's"), 'it&apos;s');
   });
 
   it('turns nullish into an empty string and stringifies the rest', () => {
