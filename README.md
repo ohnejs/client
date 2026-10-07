@@ -38,6 +38,29 @@ if (token) connect({ api: 'https://api.example.com', onData: render });
 `connect` does nothing outside the editor's frame. Without `onData` or `onRefresh`, it fetches the
 page again and swaps its `<body>`.
 
+## Rich text
+
+A `richText` field holds a tree of blocks and runs, never HTML. `richTextToHTML` renders it and
+escapes every text and address on the way, so nothing in the value can inject markup:
+
+```ts
+import { richTextToHTML, type RichText } from '@ohnejs/client';
+
+const html = richTextToHTML(page.record.body as RichText);
+```
+
+A link to another page carries its `href` when the reader can open that page, and renders as plain
+text otherwise. To keep such links inside a client-side router, let `interceptLinks` catch the clicks:
+
+```ts
+import { interceptLinks } from '@ohnejs/client';
+
+const dispose = interceptLinks(document, (path) => router.push(path));
+```
+
+It leaves alone links to other origins, links that open a new tab, downloads, and clicks with a
+modifier key held. Call `dispose` on unmount.
+
 ## Webhooks
 
 `verifyWebhook(request, secret)` checks a webhook the cms sent and answers its event, or `null`.

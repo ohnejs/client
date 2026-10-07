@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Local link to the ohne checkout
+.pnpmfile.cjs
+
 # OS
 .DS_Store
 

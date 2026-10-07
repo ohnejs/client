@@ -27,11 +27,12 @@
   "scripts": {
     "format": "oxfmt",
     "lint": "oxlint",
-    "test": "node --test \"tests/**/*.test.ts\"",
+    "test": "node --test --import ohnejs/register \"tests/**/*.test.ts\"",
     "typecheck": "tsc"
   },
   "devDependencies": {
     "@types/node": "26.0.0",
+    "ohnejs": "0.0.2",
     "oxfmt": "0.55.0",
     "oxlint": "1.70.0",
     "typescript": "7.0.2"

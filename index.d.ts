@@ -64,6 +64,7 @@ export interface ResolvedPage {
   /**
    * The record, with the relations inside its blocks loaded and upload URLs absolute.
    * Each block reads as `{ block, UUID, fields }`; a related page carries its `path`.
+   * A record link in a rich text or link value carries `href` when the reader can open its page.
    */
   record: Record<string, unknown>;
 
@@ -263,6 +264,236 @@ export function createOhne(options: OhneOptions): Ohne;
  * ```
  */
 export function escapeHTML(value: unknown): string;
+
+/**
+ * An inline formatting mark, named by its HTML element.
+ */
+export type RichTextMark = 'strong' | 'em' | 'del' | 'code';
+
+/**
+ * A heading level, from `h2` to `h6`.
+ */
+export type RichTextHeadingLevel = 2 | 3 | 4 | 5 | 6;
+
+/**
+ * A link to a record, which follows the record wherever it lives.
+ */
+export interface RecordLink {
+  /**
+   * The collection that holds the target record.
+   */
+  collection: string;
+
+  /**
+   * The target record's `UUID`.
+   */
+  record: string;
+
+  /**
+   * A fragment on the target's page, without the leading `#`.
+   */
+  hash?: string;
+
+  /**
+   * Whether the link opens in a new tab.
+   *
+   * @default
+   * false
+   */
+  newTab?: boolean;
+
+  /**
+   * The target's path for the current reader, set when the reader can open its page.
+   * Without it, `richTextToHTML` renders the linked text as text.
+   */
+  href?: string;
+}
+
+/**
+ * A link to an address: a web, email or phone address, a local `/path` or a `#fragment`.
+ */
+export interface URLLink {
+  /**
+   * The address the link opens.
+   */
+  url: string;
+
+  /**
+   * Whether the link opens in a new tab.
+   *
+   * @default
+   * false
+   */
+  newTab?: boolean;
+}
+
+/**
+ * A link to a record or to an address, as a `link` field holds it.
+ * A `collection` key makes it a `RecordLink`, and a `url` key a `URLLink`.
+ */
+export type Link = RecordLink | URLLink;
+
+/**
+ * A stretch of text that shares one set of marks and at most one link.
+ */
+export interface RichTextRun {
+  /**
+   * The text, where `\n` is a line break.
+   */
+  text: string;
+
+  /**
+   * The marks on the text, from outer to inner.
+   *
+   * @default
+   * []
+   */
+  marks?: RichTextMark[];
+
+  /**
+   * The link the text opens.
+   */
+  link?: Link;
+}
+
+/**
+ * A paragraph of runs.
+ */
+export interface RichTextParagraph {
+  /**
+   * The block's kind.
+   */
+  kind: 'paragraph';
+
+  /**
+   * The paragraph's runs.
+   */
+  content: RichTextRun[];
+}
+
+/**
+ * A heading of runs.
+ */
+export interface RichTextHeading {
+  /**
+   * The block's kind.
+   */
+  kind: 'heading';
+
+  /**
+   * The heading level, so `2` renders as `h2`.
+   */
+  level: RichTextHeadingLevel;
+
+  /**
+   * The heading's runs.
+   */
+  content: RichTextRun[];
+}
+
+/**
+ * A quote of runs.
+ * A quote with several lines separates them with `\n`.
+ */
+export interface RichTextQuote {
+  /**
+   * The block's kind.
+   */
+  kind: 'quote';
+
+  /**
+   * The quote's runs.
+   */
+  content: RichTextRun[];
+}
+
+/**
+ * A bulleted or numbered list.
+ */
+export interface RichTextList {
+  /**
+   * The block's kind.
+   */
+  kind: 'list';
+
+  /**
+   * Whether the list is numbered.
+   */
+  ordered: boolean;
+
+  /**
+   * The list's items.
+   */
+  items: RichTextListItem[];
+}
+
+/**
+ * A list item: its runs, then an optional nested list.
+ */
+export interface RichTextListItem {
+  /**
+   * The item's runs.
+   */
+  content: RichTextRun[];
+
+  /**
+   * A list nested under the item.
+   */
+  list?: RichTextList;
+}
+
+/**
+ * A top-level block of a rich text value.
+ */
+export type RichTextBlock = RichTextParagraph | RichTextHeading | RichTextQuote | RichTextList;
+
+/**
+ * A rich text value, as a `richText` field holds it: a list of blocks, where `[]` is empty.
+ */
+export type RichText = RichTextBlock[];
+
+/**
+ * Renders a rich text value as HTML, with no whitespace between tags.
+ * Text and link addresses are escaped, so nothing in the value can inject markup.
+ * `null` and `undefined` render as `''`.
+ * A link renders as an `<a>` when its address is one a browser cannot run, and as text otherwise.
+ * A record link renders as an `<a>` only with an `href`, which the cms sets when the reader can open its page.
+ * Under `inline`, block tags are dropped and each block boundary becomes a `<br>`.
+ *
+ * @example
+ * ```ts
+ * richTextToHTML([
+ *   { kind: 'heading', level: 2, content: [{ text: 'Hi' }] },
+ *   { kind: 'paragraph', content: [{ text: 'a & ', marks: ['em'] }, { text: 'b', link: { url: '/b' } }] },
+ * ])
+ * // -> '<h2>Hi</h2><p><em>a &amp; </em><a href="/b">b</a></p>'
+ *
+ * richTextToHTML([{ kind: 'paragraph', content: [{ text: 'a\nb' }] }], { inline: true })
+ * // -> 'a<br>b'
+ * ```
+ */
+export function richTextToHTML(
+  value: RichText | null | undefined,
+  options?: { inline?: boolean },
+): string;
+
+/**
+ * Routes clicks on the links under `root` through `navigate`, so a record link stays inside the app.
+ * It passes `navigate` the path of a link on the page's own origin, with its query string and hash.
+ * A click the page already handled, or one with a modifier key held or another button, goes untouched.
+ * So does a link to another origin, a `download`, a `target` other than `_self`, and a hash on the same path.
+ * It returns a function that stops intercepting.
+ *
+ * @example
+ * ```ts
+ * const dispose = interceptLinks(document, (path) => router.push(path))
+ * dispose()
+ * ```
+ */
+export function interceptLinks(
+  root: Element | Document,
+  navigate: (path: string) => void,
+): () => void;
 
 /**
  * A change the cms told a webhook about.
