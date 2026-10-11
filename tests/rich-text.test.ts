@@ -19,14 +19,9 @@ import type {
   RichTextRun,
   URLLink,
 } from '../index.d.ts';
+import type { Same } from './same.ts';
 
 import { richTextToHTML } from '../index.js';
-
-/**
- * `true` only when `A` and `B` are the same type, so an optional field added on one side fails too.
- */
-type Same<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 const MIRRORED: [
   Same<RichTextMark, utils.RichTextMark>,
@@ -42,7 +37,9 @@ const MIRRORED: [
   Same<RichTextListItem, utils.RichTextListItem>,
   Same<RichTextBlock, utils.RichTextBlock>,
   Same<RichText, utils.RichText>,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true];
+  Same<Link<'Pages'>, utils.Link<'Pages'>>,
+  Same<RichText<'Pages'>, utils.RichText<'Pages'>>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
 
 const PAGE = '019f3c1a-8b2d-7f4e-9a6b-1c2d3e4f5a6b';
 

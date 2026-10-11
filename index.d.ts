@@ -28,55 +28,119 @@ export interface ResolveOptions {
   /**
    * The preview token of the editor framing the page, from `Ohne.token`.
    * It lays the editor's unsaved changes over the page; an unknown or expired token is ignored.
+   * A preview carries the editor's unsaved values in the shape of a saved page.
    */
   token?: string;
 }
 
 /**
- * A page the path names: the record a route pattern matched, read as a public visitor reads it.
+ * What a CMS resolves, as the `CMS` type its API generates describes it.
+ * It bounds the type parameter of `createOhne`; a site passes its generated `CMS` and never writes one.
  */
-export interface ResolvedPage {
+export interface Schema {
   /**
-   * Marks a page.
+   * The version of the type file's shape, so a file from another version fails to compile.
    */
-  kind: 'page';
+  protocol: 1;
 
   /**
-   * The collection the route pattern belongs to.
-   */
-  collection: string;
-
-  /**
-   * The record's `UUID`.
-   */
-  UUID: string;
-
-  /**
-   * The locale the record was read in.
+   * The locales the CMS reads in.
    */
   locale: string;
 
   /**
-   * The canonical path of the record in that locale.
+   * The record of each routed collection, by collection name.
    */
-  path: string;
+  pages: object;
 
   /**
-   * The record, with the relations inside its blocks loaded and upload URLs absolute.
-   * Each block reads as `{ block, UUID, fields }`; a related page carries its `path`.
-   * A record link in a rich text or link value carries `href` when the reader can open its page.
+   * The record a path no page answers can show, from the collection routed at `/[...slug]`.
    */
-  record: Record<string, unknown>;
+  notFound: object;
+}
+
+/**
+ * The `Schema` of a client created without a type: any collection, holding any record.
+ */
+export interface UntypedSchema extends Schema {
+  /**
+   * Any record of any collection.
+   */
+  pages: Record<string, Record<string, unknown>>;
 
   /**
-   * What the page's `<head>` says, from its own SEO fields and the site's settings.
+   * Any record.
    */
-  seo: SEO;
+  notFound: Record<string, unknown>;
+}
+
+/**
+ * A page the path names: the record a route pattern matched, read as a public visitor reads it.
+ * Under a generated `CMS`, checking `collection` narrows `record` to that collection's shape.
+ */
+export type ResolvedPage<S extends Schema = UntypedSchema> =
+  // Distributing over `S` lets a typed client pass where an untyped `Ohne` is expected.
+  S extends S
+    ? {
+        [C in keyof S['pages'] & string]: {
+          /**
+           * Marks a page.
+           */
+          kind: 'page';
+
+          /**
+           * The collection the route pattern belongs to.
+           */
+          collection: C;
+
+          /**
+           * The record's `UUID`.
+           */
+          UUID: string;
+
+          /**
+           * The locale the record was read in.
+           */
+          locale: S['locale'];
+
+          /**
+           * The canonical path of the record in that locale.
+           */
+          path: string;
+
+          /**
+           * The record, with the relations inside its blocks loaded and upload URLs absolute.
+           * Each block reads as `{ block, UUID, fields }`; a related page carries its `path`.
+           * A record link in a rich text or link value carries `href` when the reader can open its page.
+           */
+          record: S['pages'][C];
+
+          /**
+           * What the page's `<head>` says, from its own SEO fields and the site's settings.
+           */
+          seo: SEO;
+
+          /**
+           * The page in every locale it has, for `hreflang` links; empty on a site with one locale.
+           */
+          alternates: Alternate<S['locale']>[];
+        };
+      }[keyof S['pages'] & string]
+    : never;
+
+/**
+ * The page in another locale, for an `hreflang` link.
+ */
+export interface Alternate<L extends string = string> {
+  /**
+   * The page's locale, or `'x-default'` for the default locale's page.
+   */
+  hreflang: L | 'x-default';
 
   /**
-   * The page in every locale it has, for `hreflang` links; empty on a site with one locale.
+   * The page's URL in that locale.
    */
-  alternates: { hreflang: string; href: string }[];
+  href: string;
 }
 
 /**
@@ -132,7 +196,7 @@ export interface ResolvedRedirect {
 /**
  * A path no page answers.
  */
-export interface ResolvedNotFound {
+export interface ResolvedNotFound<S extends Schema = UntypedSchema> {
   /**
    * Marks a path no page answers.
    */
@@ -141,24 +205,28 @@ export interface ResolvedNotFound {
   /**
    * The record of the page with the slug `404`, to render with a `404` status, when the site has one.
    */
-  page?: Record<string, unknown>;
+  page?: S['notFound'];
 }
 
 /**
  * What a path resolves to.
  */
-export type Resolved = ResolvedPage | ResolvedRedirect | ResolvedNotFound;
+export type Resolved<S extends Schema = UntypedSchema> =
+  | ResolvedPage<S>
+  | ResolvedRedirect
+  | ResolvedNotFound<S>;
 
 /**
  * A client of one ohne API.
+ * `S` is the `CMS` type the API generates, which types each page by its collection.
  */
-export interface Ohne {
+export interface Ohne<S extends Schema = UntypedSchema> {
   /**
    * Resolves a site path, like `'/blog/hello'` or `'/de/ueber-uns'`, to the page it names.
    * The path's locale prefix picks the locale.
    * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws.
    */
-  resolve(path: string, options?: ResolveOptions): Promise<Resolved>;
+  resolve(path: string, options?: ResolveOptions): Promise<Resolved<S>>;
 
   /**
    * The preview token a request carries, from its `ohne-preview` query param, or `undefined`.
@@ -175,7 +243,7 @@ export interface Ohne {
    * The `<head>` tags of a page as HTML: title, description, share tags, canonical, and `hreflang` links.
    * With a preview token it asks search engines to stay away too.
    */
-  renderHead(page: ResolvedPage, options?: { token?: string }): string;
+  renderHead(page: { seo: SEO; alternates: Alternate[] }, options?: { token?: string }): string;
 
   /**
    * The `<script>` tag that connects a server-rendered page to the editor that frames it.
@@ -188,7 +256,7 @@ export interface Ohne {
 /**
  * Options for `connect`.
  */
-export interface ConnectOptions {
+export interface ConnectOptions<S extends Schema = UntypedSchema> {
   /**
    * The origin of the ohne API that serves the preview script.
    */
@@ -203,8 +271,9 @@ export interface ConnectOptions {
   /**
    * Shows a page the editor resolved with the newest unsaved changes, with no fetch.
    * It wins over `onRefresh`, for a page rendered in the browser.
+   * A preview carries the editor's unsaved values in the shape of a saved page.
    */
-  onData?: (page: Resolved) => void;
+  onData?: (page: Resolved<S>) => void;
 
   /**
    * Leaves the preview token in the address bar, for a framework that renders again from the URL on the server.
@@ -237,20 +306,21 @@ export interface Preview {
  * preview.dispose()
  * ```
  */
-export function connect(options: ConnectOptions): Preview;
+export function connect<S extends Schema = UntypedSchema>(options: ConnectOptions<S>): Preview;
 
 /**
  * Creates a client of the ohne API at `options.api`.
+ * Pass the `CMS` type the API generates, as `createOhne<CMS>`, to type each page by its collection.
  *
  * @example
  * ```ts
- * const ohne = createOhne({ api: 'http://localhost:4000' })
+ * const ohne = createOhne<CMS>({ api: 'http://localhost:4000' })
  *
  * await ohne.resolve('/blog/hello') // -> { kind: 'page', collection: 'Posts', record: { ... }, ... }
  * await ohne.resolve('/nope')       // -> { kind: 'notFound' }
  * ```
  */
-export function createOhne(options: OhneOptions): Ohne;
+export function createOhne<S extends Schema = UntypedSchema>(options: OhneOptions): Ohne<S>;
 
 /**
  * Escapes a value for HTML text or a quoted attribute.
@@ -277,12 +347,13 @@ export type RichTextHeadingLevel = 2 | 3 | 4 | 5 | 6;
 
 /**
  * A link to a record, which follows the record wherever it lives.
+ * `C` narrows the collections a link may point into.
  */
-export interface RecordLink {
+export interface RecordLink<C extends string = string> {
   /**
    * The collection that holds the target record.
    */
-  collection: string;
+  collection: C;
 
   /**
    * The target record's `UUID`.
@@ -331,12 +402,12 @@ export interface URLLink {
  * A link to a record or to an address, as a `link` field holds it.
  * A `collection` key makes it a `RecordLink`, and a `url` key a `URLLink`.
  */
-export type Link = RecordLink | URLLink;
+export type Link<C extends string = string> = RecordLink<C> | URLLink;
 
 /**
  * A stretch of text that shares one set of marks and at most one link.
  */
-export interface RichTextRun {
+export interface RichTextRun<C extends string = string> {
   /**
    * The text, where `\n` is a line break.
    */
@@ -353,13 +424,13 @@ export interface RichTextRun {
   /**
    * The link the text opens.
    */
-  link?: Link;
+  link?: Link<C>;
 }
 
 /**
  * A paragraph of runs.
  */
-export interface RichTextParagraph {
+export interface RichTextParagraph<C extends string = string> {
   /**
    * The block's kind.
    */
@@ -368,13 +439,13 @@ export interface RichTextParagraph {
   /**
    * The paragraph's runs.
    */
-  content: RichTextRun[];
+  content: RichTextRun<C>[];
 }
 
 /**
  * A heading of runs.
  */
-export interface RichTextHeading {
+export interface RichTextHeading<C extends string = string> {
   /**
    * The block's kind.
    */
@@ -388,14 +459,14 @@ export interface RichTextHeading {
   /**
    * The heading's runs.
    */
-  content: RichTextRun[];
+  content: RichTextRun<C>[];
 }
 
 /**
  * A quote of runs.
  * A quote with several lines separates them with `\n`.
  */
-export interface RichTextQuote {
+export interface RichTextQuote<C extends string = string> {
   /**
    * The block's kind.
    */
@@ -404,13 +475,13 @@ export interface RichTextQuote {
   /**
    * The quote's runs.
    */
-  content: RichTextRun[];
+  content: RichTextRun<C>[];
 }
 
 /**
  * A bulleted or numbered list.
  */
-export interface RichTextList {
+export interface RichTextList<C extends string = string> {
   /**
    * The block's kind.
    */
@@ -424,33 +495,37 @@ export interface RichTextList {
   /**
    * The list's items.
    */
-  items: RichTextListItem[];
+  items: RichTextListItem<C>[];
 }
 
 /**
  * A list item: its runs, then an optional nested list.
  */
-export interface RichTextListItem {
+export interface RichTextListItem<C extends string = string> {
   /**
    * The item's runs.
    */
-  content: RichTextRun[];
+  content: RichTextRun<C>[];
 
   /**
    * A list nested under the item.
    */
-  list?: RichTextList;
+  list?: RichTextList<C>;
 }
 
 /**
  * A top-level block of a rich text value.
  */
-export type RichTextBlock = RichTextParagraph | RichTextHeading | RichTextQuote | RichTextList;
+export type RichTextBlock<C extends string = string> =
+  | RichTextParagraph<C>
+  | RichTextHeading<C>
+  | RichTextQuote<C>
+  | RichTextList<C>;
 
 /**
  * A rich text value, as a `richText` field holds it: a list of blocks, where `[]` is empty.
  */
-export type RichText = RichTextBlock[];
+export type RichText<C extends string = string> = RichTextBlock<C>[];
 
 /**
  * Renders a rich text value as HTML, with no whitespace between tags.
