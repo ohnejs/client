@@ -1,6 +1,6 @@
 {
   "name": "@ohnejs/client",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Reads pages from an ohne CMS and wires its live preview, for any frontend.",
   "homepage": "https://ohne.dev/docs/cms/website",
   "license": "MIT",
