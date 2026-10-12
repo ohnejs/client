@@ -224,6 +224,7 @@ export interface Ohne<S extends Schema = UntypedSchema> {
   /**
    * Resolves a site path, like `'/blog/hello'` or `'/de/ueber-uns'`, to the page it names.
    * The path's locale prefix picks the locale.
+   * Pass the query along, as `'/old?ref=x'`: a redirect that keeps the query carries it to its target.
    * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws.
    */
   resolve(path: string, options?: ResolveOptions): Promise<Resolved<S>>;
@@ -317,6 +318,7 @@ export function connect<S extends Schema = UntypedSchema>(options: ConnectOption
  * const ohne = createOhne<CMS>({ api: 'http://localhost:4000' })
  *
  * await ohne.resolve('/blog/hello') // -> { kind: 'page', collection: 'Posts', record: { ... }, ... }
+ * await ohne.resolve('/old?ref=x')  // -> { kind: 'redirect', to: '/new?ref=x', code: 301 }
  * await ohne.resolve('/nope')       // -> { kind: 'notFound' }
  * ```
  */

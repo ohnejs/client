@@ -40,6 +40,12 @@ describe('createOhne', () => {
     strictEqual(calls[0]?.init?.cache, 'no-store');
   });
 
+  it('sends the query with the path', async () => {
+    const { calls, fetch } = fakeFetch({ kind: 'redirect', to: '/new?ref=x', code: 301 });
+    await createOhne({ api: 'http://api.test', fetch }).resolve('/old?ref=x');
+    strictEqual(calls[0]?.url, 'http://api.test/cms/routes/resolve?path=%2Fold%3Fref%3Dx');
+  });
+
   it('throws when the API fails', async () => {
     const { fetch } = fakeFetch({}, 500);
     await rejects(createOhne({ api: 'http://api.test', fetch }).resolve('/'), /ohne answered 500/);

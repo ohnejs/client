@@ -21,6 +21,9 @@ const page = await ohne.resolve('/blog/hello');
 `page.kind` is `page`, `redirect`, or `notFound`. A `page` carries the `record`, its `seo`, and its
 `alternates` in other locales. `renderHead(page)` turns those into `<head>` tags.
 
+Pass the path with its query, as `location.pathname + location.search`, so a redirect that keeps
+the query carries it to its target.
+
 ## Types
 
 Your CMS describes its pages in an `ohne.ts` file. Fetch it from the API, or let `ohne dev` keep it
@@ -55,7 +58,7 @@ import { connect, createOhne } from '@ohnejs/client';
 
 const ohne = createOhne({ api: 'https://api.example.com' });
 const token = ohne.token(location.href);
-const page = await ohne.resolve(location.pathname, { token });
+const page = await ohne.resolve(location.pathname + location.search, { token });
 
 if (token) connect({ api: 'https://api.example.com', onData: render });
 ```
