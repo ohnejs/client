@@ -19,7 +19,7 @@ const page = await ohne.resolve('/blog/hello');
 ```
 
 `page.kind` is `page`, `redirect`, or `notFound`. A `page` carries the `record`, its `seo`, and its
-`alternates` in other locales. `renderHead(page)` turns those into `<head>` tags.
+`alternates` in other locales. `ohne.renderHead(page)` turns those into `<head>` tags.
 
 Pass the path with its query, as `location.pathname + location.search`, so a redirect that keeps
 the query carries it to its target.
