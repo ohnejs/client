@@ -555,6 +555,22 @@ export function richTextToHTML(
 ): string;
 
 /**
+ * The address a link value opens, or `undefined` when a browser may not follow it.
+ * A `URLLink` answers its `url`, and a `RecordLink` its `href`, set when the reader can open the page.
+ * An address a browser could run or rewrite, like `javascript:` or `//host`, answers `undefined`.
+ *
+ * @example
+ * ```ts
+ * linkHref({ url: '/about', newTab: true })                     // -> '/about'
+ * linkHref({ collection: 'Pages', record: '01a1', href: '/b' }) // -> '/b'
+ * linkHref({ collection: 'Pages', record: '01a1' })             // -> undefined
+ * linkHref({ url: 'javascript:alert(1)' })                      // -> undefined
+ * linkHref(undefined)                                           // -> undefined
+ * ```
+ */
+export function linkHref(link: Link | null | undefined): string | undefined;
+
+/**
  * Routes clicks on the links under `root` through `navigate`, so a record link stays inside the app.
  * It passes `navigate` the path of a link on the page's own origin, with its query string and hash.
  * A click the page already handled, or one with a modifier key held or another button, goes untouched.

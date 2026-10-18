@@ -177,13 +177,22 @@ function renderRuns(runs) {
 
 /**
  * @param {unknown} link
+ * @returns {string | undefined}
+ */
+export function linkHref(link) {
+  if (!isPlainObject(link)) return undefined;
+  const href = link.collection === undefined ? link.url : link.href;
+  return typeof href === 'string' && isSafeHref(href) ? href : undefined;
+}
+
+/**
+ * @param {unknown} link
  * @param {string} html
  * @returns {string}
  */
 function renderLink(link, html) {
-  if (!isPlainObject(link)) return html;
-  const href = link.collection === undefined ? link.url : link.href;
-  if (typeof href !== 'string' || !isSafeHref(href)) return html;
+  const href = linkHref(link);
+  if (href === undefined || !isPlainObject(link)) return html;
   return `<a href="${escapeHTML(href)}"${link.newTab === true ? NEW_TAB : ''}>${html}</a>`;
 }
 

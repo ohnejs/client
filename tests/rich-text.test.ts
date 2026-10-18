@@ -21,7 +21,7 @@ import type {
 } from '../index.d.ts';
 import type { Same } from './same.ts';
 
-import { richTextToHTML } from '../index.js';
+import { linkHref, richTextToHTML } from '../index.js';
 
 const MIRRORED: [
   Same<RichTextMark, utils.RichTextMark>,
@@ -352,5 +352,31 @@ describe('richTextToHTML', () => {
       rendered += matchesOracle(genDocument(rnd), `document ${i}`).length;
     }
     ok(rendered > 0);
+  });
+});
+
+describe('linkHref', () => {
+  it('answers the address of a URL link or a resolved record link', () => {
+    strictEqual(linkHref({ url: '/about', newTab: true }), '/about');
+    strictEqual(linkHref({ collection: 'Pages', record: PAGE, href: '/b' }), '/b');
+    strictEqual(linkHref({ url: 'mailto:a@b.c' }), 'mailto:a@b.c');
+    strictEqual(linkHref({ url: '#x' }), '#x');
+  });
+
+  it('answers `undefined` for an address a browser could run or rewrite', () => {
+    strictEqual(linkHref({ url: 'javascript:alert(1)' }), undefined);
+    strictEqual(linkHref({ url: '//evil.test' }), undefined);
+    strictEqual(linkHref({ collection: 'Pages', record: PAGE, href: 'javascript:x' }), undefined);
+  });
+
+  it('reads `href` only on a record link', () => {
+    strictEqual(linkHref({ collection: 'Pages', record: PAGE }), undefined);
+    strictEqual(linkHref({ url: '/a', href: 'javascript:x' } as never), '/a');
+  });
+
+  it('answers `undefined` for a value that is not a link', () => {
+    for (const value of [undefined, null, 'https://x.y', 1, ['/a'], new URL('https://x.y')]) {
+      strictEqual(linkHref(value as never), undefined);
+    }
   });
 });
