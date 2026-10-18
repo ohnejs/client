@@ -69,15 +69,19 @@ export function createOhne(options) {
  */
 export function connect(options) {
   if (typeof window === 'undefined' || window.parent === window) return { dispose() {} };
-  const url = `${options.api.replace(/\/+$/, '')}/cms/preview.js`;
+  // A dynamic import resolves a path against the bundle, which a CDN may serve from another origin.
+  const url = new URL(`${options.api.replace(/\/+$/, '')}/cms/preview.js`, location.href).href;
   /** @type {Preview | undefined} */
   let inner;
   let disposed = false;
-  void import(/* webpackIgnore: true */ /* @vite-ignore */ url).then((module) => {
-    if (disposed) return;
-    const { onRefresh, onData, keepToken } = options;
-    inner = module.connect({ onRefresh, onData, keepToken });
-  });
+  import(/* webpackIgnore: true */ /* @vite-ignore */ url)
+    .then((module) => {
+      if (disposed) return;
+      const { onRefresh, onData, keepToken } = options;
+      inner = module.connect({ onRefresh, onData, keepToken });
+    })
+    // The dashboard names the usual causes when the site never says hello.
+    .catch(() => {});
   return {
     dispose() {
       disposed = true;

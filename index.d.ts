@@ -4,6 +4,7 @@
 export interface OhneOptions {
   /**
    * The origin of the ohne API, like `'https://api.example.com'`.
+   * In the browser it may be a path on the site that relays the API, like `'/_ohne'`.
    */
   api: string;
 
@@ -259,7 +260,8 @@ export interface Ohne<S extends Schema = UntypedSchema> {
  */
 export interface ConnectOptions<S extends Schema = UntypedSchema> {
   /**
-   * The origin of the ohne API that serves the preview script.
+   * The origin of the ohne API, like `'https://api.example.com'`.
+   * In the browser it may be a path on the site that relays the API, like `'/_ohne'`.
    */
   api: string;
 

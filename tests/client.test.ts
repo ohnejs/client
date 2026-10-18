@@ -1,6 +1,7 @@
 import { deepStrictEqual, rejects, strictEqual } from 'node:assert';
 import { createHmac } from 'node:crypto';
-import { describe, it } from 'node:test';
+import { registerHooks } from 'node:module';
+import { describe, it, type TestContext } from 'node:test';
 
 import { connect, createOhne, escapeHTML, verifyWebhook } from '../index.js';
 
@@ -14,6 +15,41 @@ function fakeFetch(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), { status });
   };
   return { calls, fetch: fetch as typeof globalThis.fetch };
+}
+
+const connected: unknown[] = [];
+const PREVIEW = `data:text/javascript,export const connect = (options) => {
+  globalThis.connected.push(options);
+  return { dispose() {} };
+};`;
+
+/**
+ * Puts the test inside a browser frame at `href` and records each preview script `connect` imports.
+ * With `serve`, the import answers a preview script that records its options in `connected`.
+ */
+function inFrame(t: TestContext, href: string, serve = true): string[] {
+  const imports: string[] = [];
+  connected.length = 0;
+  Object.assign(globalThis, { window: { parent: {} }, location: new URL(href), connected });
+  const hooks = registerHooks({
+    resolve(specifier, context, next) {
+      if (!specifier.endsWith('/cms/preview.js')) return next(specifier, context);
+      imports.push(specifier);
+      return serve ? { url: PREVIEW, shortCircuit: true } : next(specifier, context);
+    },
+  });
+  t.after(() => {
+    hooks.deregister();
+    for (const key of ['window', 'location', 'connected']) Reflect.deleteProperty(globalThis, key);
+  });
+  return imports;
+}
+
+/**
+ * Waits for a dynamic import to settle.
+ */
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 describe('createOhne', () => {
@@ -75,6 +111,26 @@ describe('connect and previewScript', () => {
   it('connects nothing outside a browser frame', () => {
     const preview = connect({ api: 'http://api.test' });
     preview.dispose();
+  });
+
+  it('loads the preview script from a path on the page origin', async (t) => {
+    const imports = inFrame(t, 'http://site.test/about');
+    const onData = () => {};
+    connect({ api: '/_ohne', onData });
+    await tick();
+    deepStrictEqual(imports, ['http://site.test/_ohne/cms/preview.js']);
+    deepStrictEqual(connected, [{ onRefresh: undefined, onData, keepToken: undefined }]);
+  });
+
+  it('ignores a preview script that fails to load', async (t) => {
+    const unhandled: unknown[] = [];
+    const onRejection = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onRejection);
+    t.after(() => process.off('unhandledRejection', onRejection));
+    inFrame(t, 'http://site.test/about', false);
+    connect({ api: 'http://api.test' });
+    await tick();
+    deepStrictEqual(unhandled, []);
   });
 
   it('prints a module script that connects on its own', () => {
