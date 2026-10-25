@@ -24,6 +24,51 @@ const page = await ohne.resolve('/blog/hello');
 Pass the path with its query, as `location.pathname + location.search`, so a redirect that keeps
 the query carries it to its target.
 
+## Reading site data
+
+Not everything is a page. A menu, a footer, or a list of posts lives in records you read by
+collection name:
+
+```ts
+const settings = await ohne.read('Settings');
+const post = await ohne.read('Posts', uuid);
+const posts = await ohne.list('Posts', { order: ['-publishedAt'], page: 2, perPage: 10 });
+```
+
+`read` with only a name reads a singleton, a collection that holds one record. With a `UUID` it
+reads that record, or `undefined` when a visitor may not see it. `list` answers one page:
+`{ records, total, page, perPage, lastPage }`, 20 records by default and at most 100.
+
+You read as a visitor does, so only what the collection's read access shows comes back. Uploads
+carry absolute URLs, and a record with a page carries its `path`.
+
+`list` filters with `where`, in the shape of the URL `where`, and `select` narrows the fields:
+
+```ts
+const featured = await ohne.list('Posts', {
+  where: { featured: true, views: { atLeast: 100 } },
+  select: ['title', 'image'],
+  locale: 'de',
+});
+```
+
+`UUID` and `path` come whatever `select` says.
+
+## Forms
+
+A contact form, a newsletter sign-up, or a comment stores a record as a visitor:
+
+```ts
+const result = await ohne.create('Messages', { name, email, message });
+
+if (!result.ok) showErrors(result.message, result.errors);
+```
+
+It works for a collection whose create is public. A refusal the visitor can fix, like an invalid
+email or a failed spam check, resolves with the API's `message` and a message per field in `errors`.
+Any other failure throws. A spam check's token travels as a header:
+`ohne.create('Messages', input, { headers: { 'recaptcha-token': token } })`.
+
 ## Types
 
 Your CMS describes its pages in an `ohne.ts` file. Fetch it from the API, or let `ohne dev` keep it
@@ -48,6 +93,11 @@ if (page.kind === 'page' && page.collection === 'Pages') {
 ```
 
 `CMS` describes everything your CMS resolves; `Page`, `Block`, `Related` and `Upload` name its parts.
+It types `read` and `list` too: a collection name, `select`, `order`, and `where` are checked against
+`Records`, and the answer narrows to the fields you select. A types file from a cms before `0.4.0`
+names no `Records`, so `read` and `list` refuse every name until you fetch it again.
+
+`Creatable` types `create` the same way: a misspelled or missing field fails to compile.
 
 ## Live preview
 

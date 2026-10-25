@@ -1,4 +1,11 @@
-/** @import { ConnectOptions, Ohne, OhneOptions, Preview, Resolved, ResolveOptions, RichText, RichTextMark, WebhookEvent } from './index.d.ts' */
+/** @import { ConnectOptions, CreateOptions, CreateResult, ListOptions, Ohne, OhneOptions, Preview, ReadOptions, RecordPage, Refused, Resolved, ResolveOptions, RichText, RichTextMark, WebhookEvent } from './index.d.ts' */
+
+const READ_PARAMS = ['select', 'locale'];
+const LIST_PARAMS = ['where', 'order', 'select', 'page', 'perPage', 'locale'];
+// A URL resolves these segments away, so the request would reach another route.
+const DOT_SEGMENT = /^\.{0,2}$/;
+const COLLECTION = /^[A-Z][A-Za-z0-9]*$/;
+const REFUSALS = new Set([401, 403, 413, 422, 429]);
 
 /**
  * @param {OhneOptions} options
@@ -8,20 +15,77 @@ export function createOhne(options) {
   const api = options.api.replace(/\/+$/, '');
   const send = options.fetch ?? globalThis.fetch;
 
+  /**
+   * Sends a `GET` to the API with `fetchInit` merged in, answering the parsed body.
+   * Under `missing`, a `404` answers `undefined`; any other failed answer throws.
+   *
+   * @param {string} path
+   * @param {string} query
+   * @param {{ token?: string, missing?: boolean }} [requestOptions]
+   * @returns {Promise<unknown>}
+   */
+  async function request(path, query, { token, missing = false } = {}) {
+    const init = options.fetchInit ?? {};
+    const headers = new Headers(init.headers);
+    if (token) headers.set('ohne-preview', token);
+    const url = query ? `${path}?${query}` : path;
+    const response = await send(`${api}${url}`, { ...init, headers });
+    if (missing && response.status === 404) return undefined;
+    if (!response.ok) throw new Error(`ohne answered ${response.status} for ${url}`);
+    return response.json();
+  }
+
+  /**
+   * @param {string} collection
+   * @param {readonly string[]} names
+   * @param {Record<string, unknown>} params
+   * @param {string} [uuid]
+   */
+  async function records(collection, names, params, uuid) {
+    if (DOT_SEGMENT.test(collection)) throw new Error(`ohne has no collection \`${collection}\``);
+    if (uuid !== undefined && DOT_SEGMENT.test(uuid)) return undefined;
+    const path = `/cms/records/${encodeURIComponent(collection)}`;
+    const query = names
+      .filter((name) => params[name] !== undefined)
+      .map((name) => `${name}=${encodeParam(params[name])}`)
+      .join('&');
+    if (uuid === undefined) return request(path, query);
+    return request(`${path}/${encodeURIComponent(uuid)}`, query, { missing: true });
+  }
+
   return {
     /**
      * @param {string} path
      * @param {ResolveOptions} [resolveOptions]
      * @returns {Promise<Resolved>}
      */
-    async resolve(path, resolveOptions = {}) {
+    resolve(path, resolveOptions = {}) {
       const query = new URLSearchParams({ path });
-      const init = options.fetchInit ?? {};
-      const headers = new Headers(init.headers);
-      if (resolveOptions.token) headers.set('ohne-preview', resolveOptions.token);
-      const response = await send(`${api}/cms/routes/resolve?${query}`, { ...init, headers });
-      if (!response.ok) throw new Error(`ohne answered ${response.status} resolving ${path}`);
-      return /** @type {Promise<Resolved>} */ (response.json());
+      const resolved = request('/cms/routes/resolve', String(query), {
+        token: resolveOptions.token,
+      });
+      return /** @type {Promise<Resolved>} */ (resolved);
+    },
+
+    /**
+     * @param {string} collection
+     * @param {string | ReadOptions} [uuidOrOptions]
+     * @param {ReadOptions} [readOptions]
+     */
+    read(collection, uuidOrOptions, readOptions) {
+      const uuid = typeof uuidOrOptions === 'string' ? uuidOrOptions : undefined;
+      const params = (uuid === undefined ? uuidOrOptions : readOptions) ?? {};
+      return records(collection, READ_PARAMS, { ...params }, uuid);
+    },
+
+    /**
+     * @param {string} collection
+     * @param {ListOptions} [listOptions]
+     * @returns {Promise<RecordPage<Record<string, unknown>>>}
+     */
+    list(collection, listOptions = {}) {
+      const page = records(collection, LIST_PARAMS, { ...listOptions });
+      return /** @type {Promise<RecordPage<Record<string, unknown>>>} */ (page);
     },
 
     token(request) {
@@ -60,7 +124,113 @@ export function createOhne(options) {
     previewScript() {
       return `<script type="module" src="${escapeHTML(`${api}/cms/preview.js?auto`)}"></script>`;
     },
+
+    /**
+     * @param {string} collection
+     * @param {unknown} input
+     * @param {CreateOptions} [createOptions]
+     * @returns {Promise<CreateResult>}
+     */
+    async create(collection, input, createOptions = {}) {
+      if (!COLLECTION.test(collection)) throw new Error(`ohne has no collection \`${collection}\``);
+      const init = options.fetchInit ?? {};
+      const headers = new Headers(init.headers);
+      new Headers(createOptions.headers).forEach((value, name) => headers.set(name, value));
+      headers.set('content-type', 'application/json');
+      const path = `/collections/${segmentOf(collection)}`;
+      const body = JSON.stringify(input);
+      const response = await send(`${api}${path}`, { ...init, method: 'POST', headers, body });
+      if (response.ok) {
+        const { UUID } = await response.json();
+        return typeof UUID === 'string' ? { ok: true, UUID } : { ok: true };
+      }
+      const { status } = response;
+      if (!REFUSALS.has(status)) throw new Error(`ohne answered ${status} for ${path}`);
+      // A proxy in front of the API may refuse with an HTML page.
+      const refusal = await response.json().catch(() => undefined);
+      return {
+        ok: false,
+        status: /** @type {Refused['status']} */ (status),
+        message: typeof refusal?.message === 'string' ? refusal.message : '',
+        errors: { ...refusal?.data?.errors },
+      };
+    },
   };
+}
+
+/**
+ * The URL segment of a PascalCase collection name, as the API routes it: `BlogPosts` is `blog-posts`.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function segmentOf(name) {
+  return name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/([a-z\d])([A-Z])/g, '$1-$2')
+    .toLowerCase();
+}
+
+const URL_RESERVED = ` "#<>'%&[]{},:`;
+const NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
+
+/**
+ * Writes a value in ohne's URL grammar, so `parseSearchParams` reads it back as the same value.
+ * A string that would read back as another type, like `'1'` or `'true'`, gets a leading backtick.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function encodeParam(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean') return String(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return 'null';
+    const token = String(value);
+    return readsAs(token) === value ? token : value.toExponential().replace('e+', 'e');
+  }
+  if (typeof value === 'string') {
+    const marked = value.startsWith('`') || readsAs(value) !== value;
+    return (marked ? '`' : '') + encodeText(value);
+  }
+  if (Array.isArray(value)) {
+    // A lone empty string is marked, so `['']` does not read back as `[]`.
+    return `[${value.map((item) => encodeParam(item) || '`').join(',')}]`;
+  }
+  const entries = Object.entries(/** @type {Record<string, unknown>} */ (value));
+  const fields = entries.filter(([, field]) => field !== undefined);
+  return `{${fields.map(([key, field]) => `${encodeText(key)}:${encodeParam(field)}`).join(',')}}`;
+}
+
+/**
+ * The value a bare token reads back as: `true`, `false`, `null`, a safe number, or the token itself.
+ *
+ * @param {string} token
+ * @returns {unknown}
+ */
+function readsAs(token) {
+  if (token === 'true') return true;
+  if (token === 'false') return false;
+  if (token === 'null') return null;
+  if (!NUMBER.test(token)) return token;
+  const number = Number(token);
+  return /^-?\d+$/.test(token) && !Number.isSafeInteger(number) ? token : number;
+}
+
+/**
+ * Percent-encodes control and non-ASCII characters and those the grammar reserves.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function encodeText(text) {
+  let out = '';
+  for (const char of text.toWellFormed()) {
+    const code = /** @type {number} */ (char.codePointAt(0));
+    const plain = code >= 0x20 && code <= 0x7e && !URL_RESERVED.includes(char);
+    out += plain ? char : char === "'" ? '%27' : encodeURIComponent(char);
+  }
+  return out;
 }
 
 /**

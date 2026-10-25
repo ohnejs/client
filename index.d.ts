@@ -58,10 +58,28 @@ export interface Schema {
    * The record a path no page answers can show, from the collection routed at `/[...slug]`.
    */
   notFound: object;
+
+  /**
+   * Each collection a visitor may read, as `GET /cms/records` answers it.
+   * A types file from a cms before `0.4.0` has none, so `read` and `list` refuse every collection.
+   */
+  records?: object;
+
+  /**
+   * The collections in `records` that hold one record.
+   */
+  singletons?: string;
+
+  /**
+   * Each collection a visitor may create a record in, with the fields a create takes.
+   * A types file from a cms before `0.4.0` has none, so `create` refuses every collection.
+   */
+  creatable?: object;
 }
 
 /**
  * The `Schema` of a client created without a type: any collection, holding any record.
+ * Its optional keys stay optional, so a client typed by an older types file passes as untyped.
  */
 export interface UntypedSchema extends Schema {
   /**
@@ -73,7 +91,229 @@ export interface UntypedSchema extends Schema {
    * Any record.
    */
   notFound: Record<string, unknown>;
+
+  /**
+   * Any record of any collection.
+   */
+  records?: Record<string, Record<string, unknown>>;
+
+  /**
+   * Any collection.
+   */
+  singletons?: string;
+
+  /**
+   * Any collection, taking any fields.
+   */
+  creatable?: Record<string, Record<string, unknown>>;
 }
+
+/**
+ * The singletons of a schema, which `read` takes without a `uuid`.
+ */
+export type SingletonOf<S extends Schema> = 'singletons' extends keyof S
+  ? NonNullable<S['singletons']>
+  : never;
+
+/**
+ * The collections `list` and `read` by `uuid` take: every one in `records` but the singletons.
+ * An untyped client takes any name.
+ */
+export type CollectionOf<S extends Schema> =
+  string extends SingletonOf<S>
+    ? string
+    : Exclude<keyof NonNullable<S['records']> & string, SingletonOf<S>>;
+
+/**
+ * The record of collection `C` as `GET /cms/records` answers it.
+ */
+export type RecordOf<S extends Schema, C extends string> = C extends keyof NonNullable<S['records']>
+  ? NonNullable<S['records']>[C]
+  : never;
+
+/**
+ * The collections `create` takes: those a visitor may create a record in.
+ * An untyped client takes any name.
+ */
+export type CreatableOf<S extends Schema> = 'creatable' extends keyof S
+  ? keyof NonNullable<S['creatable']> & string
+  : never;
+
+/**
+ * The fields a create of collection `C` takes, as the cms types them.
+ */
+export type CreateInputOf<S extends Schema, C extends string> = C extends keyof NonNullable<
+  S['creatable']
+>
+  ? NonNullable<S['creatable']>[C]
+  : never;
+
+/**
+ * The fields `select` names, with `UUID` and `path`, which always come.
+ */
+export type Picked<R, K extends string> = Pick<R, Extract<K | 'UUID' | 'path', keyof R>>;
+
+/**
+ * A condition in the shape of the URL `where`, like `{ featured: true }` or `{ views: { atLeast: 10 } }`.
+ * The collection's read access is added with AND, so a condition never widens it.
+ */
+export type Where<R> = { [F in keyof R & string]?: NonNullable<R[F]> | Record<string, unknown> } & {
+  /**
+   * Conditions that must all hold.
+   */
+  and?: Where<R>[];
+
+  /**
+   * Conditions of which at least one must hold.
+   */
+  or?: Where<R>[];
+};
+
+/**
+ * A field to order by, with a leading `-` for descending, like `'-publishedAt'`.
+ */
+export type Order<R> = `${'' | '-'}${keyof R & string}`;
+
+/**
+ * Options for `Ohne.read`.
+ */
+export interface ReadOptions<S extends Schema = UntypedSchema, K extends string = string> {
+  /**
+   * The locale to read in.
+   * Omitted means the cms's default locale.
+   */
+  locale?: S['locale'];
+
+  /**
+   * The fields to read, beside `UUID` and `path`.
+   * Omitted reads every field.
+   */
+  select?: readonly K[];
+}
+
+/**
+ * Options for `Ohne.list`.
+ */
+export interface ListOptions<
+  S extends Schema = UntypedSchema,
+  R = Record<string, unknown>,
+  K extends string = string,
+> extends ReadOptions<S, K> {
+  /**
+   * The records to keep.
+   */
+  where?: Where<R>;
+
+  /**
+   * The fields to order by, first one first.
+   */
+  order?: readonly Order<R>[];
+
+  /**
+   * The page to read, from `1`.
+   *
+   * @default
+   * 1
+   */
+  page?: number;
+
+  /**
+   * Records per page, at most `100`.
+   *
+   * @default
+   * 20
+   */
+  perPage?: number;
+}
+
+/**
+ * One page of a list, with what a pager needs.
+ */
+export interface RecordPage<R> {
+  /**
+   * The page's records.
+   */
+  records: R[];
+
+  /**
+   * How many records the whole list holds.
+   */
+  total: number;
+
+  /**
+   * The page read, from `1`.
+   */
+  page: number;
+
+  /**
+   * Records per page.
+   */
+  perPage: number;
+
+  /**
+   * The last page's number, at least `1` even when nothing matches.
+   */
+  lastPage: number;
+}
+
+/**
+ * Options for `Ohne.create`.
+ */
+export interface CreateOptions {
+  /**
+   * Headers the API's middleware reads, like the `recaptcha-token` a spam check asks for.
+   * They win over `fetchInit`'s, except `content-type`, which is always JSON.
+   */
+  headers?: HeadersInit;
+}
+
+/**
+ * A create the API stored.
+ */
+export interface Created {
+  /**
+   * Marks a stored create.
+   */
+  ok: true;
+
+  /**
+   * The new record's `UUID`, unless the create's `access` leaves it out of its `select`.
+   */
+  UUID?: string;
+}
+
+/**
+ * A create the API refused because of the visitor's input or standing, with what to tell them.
+ */
+export interface Refused {
+  /**
+   * Marks a refused create.
+   */
+  ok: false;
+
+  /**
+   * Why: `422` an invalid field, `403` a middleware's refusal like a failed spam check, `429` too many.
+   * `401` asks for a sign-in, and `413` a smaller body.
+   */
+  status: 401 | 403 | 413 | 422 | 429;
+
+  /**
+   * The API's message for the whole create, like `'The spam check failed. Please try again.'`.
+   * It is `''` when the refusal carries none.
+   */
+  message: string;
+
+  /**
+   * A message for each invalid field, keyed by its path, like `email` or `items[0].name`.
+   * It is empty unless `status` is `422`.
+   */
+  errors: Partial<Record<string, string>>;
+}
+
+/**
+ * What `Ohne.create` answers.
+ */
+export type CreateResult = Created | Refused;
 
 /**
  * A page the path names: the record a route pattern matched, read as a public visitor reads it.
@@ -253,6 +493,52 @@ export interface Ohne<S extends Schema = UntypedSchema> {
    * A save in the editor then reloads the page.
    */
   previewScript(): string;
+
+  /**
+   * Reads a singleton's record, like the site's `Settings`, as a visitor reads it.
+   * A failed request throws, as `resolve` does.
+   */
+  read<
+    C extends SingletonOf<S>,
+    K extends keyof RecordOf<S, C> & string = keyof RecordOf<S, C> & string,
+  >(
+    collection: C,
+    options?: ReadOptions<S, K>,
+  ): Promise<Picked<RecordOf<S, C>, K>>;
+
+  /**
+   * Reads one record by its `UUID`, or `undefined` when a visitor may not see it.
+   */
+  read<
+    C extends CollectionOf<S>,
+    K extends keyof RecordOf<S, C> & string = keyof RecordOf<S, C> & string,
+  >(
+    collection: C,
+    uuid: string,
+    options?: ReadOptions<S, K>,
+  ): Promise<Picked<RecordOf<S, C>, K> | undefined>;
+
+  /**
+   * Reads one page of a collection's records, as a visitor reads them.
+   */
+  list<
+    C extends CollectionOf<S>,
+    K extends keyof RecordOf<S, C> & string = keyof RecordOf<S, C> & string,
+  >(
+    collection: C,
+    options?: ListOptions<S, RecordOf<S, C>, K>,
+  ): Promise<RecordPage<Picked<RecordOf<S, C>, K>>>;
+
+  /**
+   * Creates a record as a visitor, like a message from a contact form.
+   * It resolves `{ ok: false }` with the API's messages when the API refuses the visitor's input or standing.
+   * Any other failure throws, as `resolve` does: a collection a visitor may not create in, a down API.
+   */
+  create<C extends CreatableOf<S>>(
+    collection: C,
+    input: CreateInputOf<S, C>,
+    options?: CreateOptions,
+  ): Promise<CreateResult>;
 }
 
 /**
@@ -322,6 +608,13 @@ export function connect<S extends Schema = UntypedSchema>(options: ConnectOption
  * await ohne.resolve('/blog/hello') // -> { kind: 'page', collection: 'Posts', record: { ... }, ... }
  * await ohne.resolve('/old?ref=x')  // -> { kind: 'redirect', to: '/new?ref=x', code: 301 }
  * await ohne.resolve('/nope')       // -> { kind: 'notFound' }
+ *
+ * await ohne.read('Settings')           // -> { UUID: 's1', menu: [...], copyright: 'Acme' }
+ * await ohne.read('Posts', uuid)        // -> { UUID: uuid, path: '/blog/hello', title: 'Hello', ... }
+ * await ohne.list('Posts', { page: 2 }) // -> { records: [...], total: 23, page: 2, perPage: 20, ... }
+ *
+ * await ohne.create('Messages', { email, message })         // -> { ok: true, UUID: 'm1' }
+ * await ohne.create('Messages', { email: 'nope', message }) // -> { ok: false, status: 422, ... }
  * ```
  */
 export function createOhne<S extends Schema = UntypedSchema>(options: OhneOptions): Ohne<S>;
