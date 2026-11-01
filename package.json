@@ -1,7 +1,7 @@
 {
   "name": "@ohnejs/client",
   "version": "0.3.0",
-  "description": "Reads pages from an ohne CMS and wires its live preview, for any frontend.",
+  "description": "Reads pages from an ohne CMS, wires its live preview and calls your ohne API, for any frontend.",
   "homepage": "https://ohne.dev/docs/cms/website",
   "license": "MIT",
   "author": "Muris Ceman <muris@ohne.dev>",

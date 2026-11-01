@@ -1,9 +1,9 @@
-import { deepStrictEqual, rejects, strictEqual } from 'node:assert';
+import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert';
 import { createHmac } from 'node:crypto';
 import { registerHooks } from 'node:module';
 import { describe, it, type TestContext } from 'node:test';
 
-import { connect, createOhne, escapeHTML, verifyWebhook } from '../index.js';
+import { APIError, connect, createOhne, escapeHTML, verifyWebhook } from '../index.js';
 
 /**
  * A `fetch` that records each request and answers `body` with `status`.
@@ -82,9 +82,26 @@ describe('createOhne', () => {
     strictEqual(calls[0]?.url, 'http://api.test/cms/routes/resolve?path=%2Fold%3Fref%3Dx');
   });
 
-  it('throws when the API fails', async () => {
-    const { fetch } = fakeFetch({}, 500);
-    await rejects(createOhne({ api: 'http://api.test', fetch }).resolve('/'), /ohne answered 500/);
+  it('throws an `APIError` when the API fails', async () => {
+    const { fetch } = fakeFetch({ statusCode: 500, message: 'Boom', data: { id: 'e1' } }, 500);
+    await rejects(createOhne({ api: 'http://api.test', fetch }).resolve('/'), (error) => {
+      ok(error instanceof APIError);
+      strictEqual(error.status, 500);
+      strictEqual(error.message, 'ohne answered 500 for /cms/routes/resolve?path=%2F');
+      deepStrictEqual(error.data, { id: 'e1' });
+      return true;
+    });
+  });
+
+  it('throws an `APIError` with status `0` when no answer arrives', async () => {
+    const fetch = (async () => {
+      throw new TypeError('fetch failed');
+    }) as typeof globalThis.fetch;
+    await rejects(createOhne({ api: 'http://api.test', fetch }).resolve('/'), {
+      name: 'APIError',
+      status: 0,
+      message: 'fetch failed',
+    });
   });
 });
 

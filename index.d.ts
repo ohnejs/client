@@ -466,7 +466,7 @@ export interface Ohne<S extends Schema = UntypedSchema> {
    * Resolves a site path, like `'/blog/hello'` or `'/de/ueber-uns'`, to the page it names.
    * The path's locale prefix picks the locale.
    * Pass the query along, as `'/old?ref=x'`: a redirect that keeps the query carries it to its target.
-   * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws.
+   * A missing page resolves `{ kind: 'notFound' }`; only a failed request throws, with an `APIError`.
    */
   resolve(path: string, options?: ResolveOptions): Promise<Resolved<S>>;
 
@@ -618,6 +618,270 @@ export function connect<S extends Schema = UntypedSchema>(options: ConnectOption
  * ```
  */
 export function createOhne<S extends Schema = UntypedSchema>(options: OhneOptions): Ohne<S>;
+
+/**
+ * A failed request to an ohne API: an error answer, or none at all.
+ */
+export class APIError extends Error {
+  /**
+   * Creates the error of an answer with `status`, or of no answer with `0`.
+   * On a `422`, `errors` is read from `data.errors`.
+   */
+  constructor(message: string, options: { status: number; data?: unknown; cause?: unknown });
+
+  /**
+   * The HTTP status; `0` means no answer arrived.
+   */
+  status: number;
+
+  /**
+   * The error body's `data`, like `{ errors }` on a `422`.
+   */
+  data: unknown;
+
+  /**
+   * A message for each invalid field, keyed by its path, like `email` or `items[0].name`.
+   * It is empty unless `status` is `422`.
+   */
+  errors: Partial<Record<string, string>>;
+}
+
+/**
+ * One route's contract, as an `ohne.contract.ts` declares it.
+ */
+export interface RouteContract {
+  /**
+   * What the route answers once JSON-parsed; an empty answer reads `null`, a non-JSON one the raw `Response`.
+   */
+  response?: unknown;
+
+  /**
+   * The JSON body the route reads.
+   */
+  body?: unknown;
+
+  /**
+   * The query the route reads, sent in ohne's URL grammar.
+   */
+  query?: object;
+}
+
+/**
+ * Every route's contract by id, as the `Routes` of the file `api.types` writes.
+ */
+export type RouteMap = { [id: string]: RouteContract };
+
+/**
+ * The routes of an API without a types file: any id, every answer `unknown`.
+ */
+export type UntypedRoutes = RouteMap;
+
+/**
+ * The path of a route id, without its method.
+ */
+type PathOf<ID extends string> = ID extends `${string} /${infer Path}` ? `/${Path}` : ID;
+
+/**
+ * The names of the params a route pattern holds, like `slug` for `[...slug]`.
+ */
+type ParamNames<Path extends string> = Path extends `${string}[${infer Name}]${infer Rest}`
+  ? (Name extends `...${infer Spread}` ? Spread : Name) | ParamNames<Rest>
+  : never;
+
+/**
+ * The `params` option of route `ID`: required when its pattern names any, absent otherwise.
+ */
+type ParamsOption<ID extends string> = [ParamNames<PathOf<ID>>] extends [never]
+  ? {}
+  : {
+      /**
+       * The value of each param in the route's pattern; a catch-all takes several `/`-separated segments.
+       */
+      params: { [Name in ParamNames<PathOf<ID>>]: string };
+    };
+
+/**
+ * The `method` option of a bare-path id, which any method reaches.
+ */
+type MethodOption<ID extends string> = ID extends `/${string}`
+  ? {
+      /**
+       * The method to send.
+       *
+       * @default
+       * 'GET'
+       */
+      method?: string;
+    }
+  : {};
+
+/**
+ * Option `K` as contract `C` declares it, or an optional `Fallback` when `C` names none.
+ */
+type ContractOption<C, K extends 'body' | 'query', Fallback> = K extends keyof C
+  ? {} extends Pick<C, K>
+    ? { [Key in K]?: C[K] }
+    : { [Key in K]: C[K] }
+  : { [Key in K]?: Fallback };
+
+/**
+ * What `call` sends with route `ID`.
+ * `params` is required when the pattern names any; `body` and `query` as the contract declares them.
+ */
+export type CallOptions<R extends RouteMap, ID extends keyof R & string> = {
+  /**
+   * Headers for this request; they win over `fetchInit`'s.
+   */
+  headers?: HeadersInit;
+
+  /**
+   * Aborts the request; an aborted call rejects with the signal's `reason` itself.
+   */
+  signal?: AbortSignal;
+} & ParamsOption<ID> &
+  MethodOption<ID> &
+  ContractOption<R[ID], 'body', unknown> &
+  ContractOption<R[ID], 'query', object>;
+
+/**
+ * What `call` resolves for route `ID`: the contract's `response`, else `unknown`.
+ */
+export type ResponseOf<R extends RouteMap, ID extends keyof R> = R[ID] extends {
+  response: infer T;
+}
+  ? T
+  : unknown;
+
+/**
+ * The user `GET /auth/me` answers under `R`, `unknown` without a types file.
+ */
+export type UserOf<R extends RouteMap> = R extends { 'GET /auth/me': { response: infer U } }
+  ? NonNullable<U>
+  : unknown;
+
+/**
+ * How a `login` ended. It never throws.
+ */
+export type LoginOutcome<U = unknown> =
+  | {
+      /**
+       * The server opened the session and set its cookie.
+       */
+      kind: 'signed-in';
+
+      /**
+       * The signed-in user, as the server answers it.
+       */
+      user: U;
+    }
+  | {
+      /**
+       * The server refused the email and password with a `401`, never saying which was wrong.
+       */
+      kind: 'invalid';
+    }
+  | {
+      /**
+       * The server refused to check the password now, with a `429` or a `503`.
+       */
+      kind: 'throttled';
+
+      /**
+       * Seconds to wait before trying again, `0` when the server named none.
+       */
+      retryAfter: number;
+    }
+  | {
+      /**
+       * The request never completed: a network failure.
+       */
+      kind: 'unreachable';
+    }
+  | {
+      /**
+       * The server answered what the login has no reading for, like a `500` or an HTML page.
+       */
+      kind: 'failed';
+
+      /**
+       * The answered HTTP status.
+       */
+      status: number;
+    };
+
+/**
+ * Options for `createAPI`.
+ */
+export interface APIOptions {
+  /**
+   * Your API's base URL, its `api.basePath` included, like `'http://127.0.0.1:7401/api'` or `'/api'`.
+   */
+  api: string;
+
+  /**
+   * The `fetch` to send requests with, like a framework's own.
+   *
+   * @default
+   * globalThis.fetch
+   */
+  fetch?: typeof fetch;
+
+  /**
+   * Extra options merged into every request, like the `cookie` header a server forwards.
+   * Requests send `credentials: 'include'` unless this sets another.
+   */
+  fetchInit?: RequestInit & Record<string, unknown>;
+}
+
+/**
+ * A client of your API's own routes that carries the visitor's session cookie.
+ */
+export interface API<R extends RouteMap = UntypedRoutes> {
+  /**
+   * Calls a route by its id, filling the pattern's params.
+   * A non-2xx answer or no answer throws an `APIError`.
+   */
+  call<ID extends keyof R & string>(
+    route: ID,
+    ...options: {} extends CallOptions<R, ID>
+      ? [options?: CallOptions<R, ID>]
+      : [options: CallOptions<R, ID>]
+  ): Promise<ResponseOf<R, ID>>;
+
+  /**
+   * Signs in through `POST /auth/login`; the API sets the session cookie.
+   */
+  login(input: {
+    email: string;
+    password: string;
+    remember?: boolean;
+  }): Promise<LoginOutcome<UserOf<R>>>;
+
+  /**
+   * Signs out through `POST /auth/logout`.
+   * An unreachable API throws, since the session then still stands.
+   */
+  logout(): Promise<void>;
+
+  /**
+   * The signed-in user from `GET /auth/me`, or `null` when nobody is.
+   * A failed request throws, so an outage never reads as signed out.
+   */
+  user(): Promise<UserOf<R> | null>;
+}
+
+/**
+ * Creates a client of your API's own routes, typed by the `Routes` your backend writes to `api.types`.
+ *
+ * @example
+ * ```ts
+ * const api = createAPI<Routes>({ api: '/api' })
+ *
+ * await api.call('GET /portal/sites', { query: { client } }) // -> PortalSiteRow[]
+ * await api.login({ email, password })                       // -> { kind: 'signed-in', user: { ... } }
+ * ```
+ */
+export function createAPI<R extends RouteMap = UntypedRoutes>(options: APIOptions): API<R>;
 
 /**
  * Escapes a value for HTML text or a quoted attribute.
@@ -920,3 +1184,5 @@ export interface WebhookEvent {
  * ```
  */
 export function verifyWebhook(request: Request, secret: string): Promise<WebhookEvent | null>;
+
+export {};

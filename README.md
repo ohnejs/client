@@ -1,7 +1,7 @@
 # @ohnejs/client
 
-Reads the pages of an [ohne](https://ohne.dev) CMS from any website: Nuxt, Next, React, Svelte,
-Astro, or plain HTML. It has no dependencies and runs wherever `fetch` does.
+Reads the pages of an [ohne](https://ohne.dev) CMS and calls your own ohne API from any website:
+Nuxt, Next, React, Svelte, Astro, or plain HTML. It has no dependencies and runs wherever `fetch` does.
 
 ## Install
 
@@ -68,6 +68,38 @@ It works for a collection whose create is public. A refusal the visitor can fix,
 email or a failed spam check, resolves with the API's `message` and a message per field in `errors`.
 Any other failure throws. A spam check's token travels as a header:
 `ohne.create('Messages', input, { headers: { 'recaptcha-token': token } })`.
+
+## Calling your API
+
+`createAPI` calls your app's own routes and carries the visitor's session cookie:
+
+```ts
+import { createAPI } from '@ohnejs/client';
+
+const api = createAPI({ api: '/api' });
+
+const outcome = await api.login({ email, password, remember: true });
+const user = await api.user();
+const site = await api.call('GET /sites/[code]', { params: { code: 'acme' } });
+await api.logout();
+```
+
+`api` is your API's base URL, its `api.basePath` included. In the browser, serve the API on your
+site's origin, like at `/api`, so the cookie reaches it. On a server, forward the visitor's `cookie`
+header through `fetchInit`.
+
+`login` never throws. Its `kind` is `signed-in` with the `user`, `invalid`, `throttled` with
+`retryAfter` seconds, `unreachable`, or `failed`. `user()` answers `null` when nobody is signed in.
+
+`call` takes a route id: the method, then the path with its `[params]`. `query` is sent in ohne's URL
+grammar and `body` as JSON. A failed answer throws an `APIError` with its `status`, and on a `422`
+a message per field in `errors`. When the API cannot be reached, `status` is `0`, so an outage
+never reads as signed out. `createOhne` throws the same `APIError`.
+
+To type every call, let your backend write its routes' types with
+[`api.types`](https://ohne.dev/docs/project/monorepo#typing-your-routes) and pass their `Routes`
+to `createAPI<Routes>`. A missing param, body or query then fails to compile, and each answer has
+its route's type.
 
 ## Types
 

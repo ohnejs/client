@@ -143,10 +143,11 @@ describe('create', () => {
   it('throws on any other failed answer', async () => {
     for (const status of [400, 404, 405, 415, 500, 503]) {
       const { fetch } = fakeFetch(JSON.stringify({ statusCode: status, message: 'no' }), status);
-      await rejects(
-        createOhne({ api: 'http://api.test', fetch }).create('Messages', {}),
-        new RegExp(`ohne answered ${status} for /collections/messages`),
-      );
+      await rejects(createOhne({ api: 'http://api.test', fetch }).create('Messages', {}), {
+        name: 'APIError',
+        status,
+        message: `ohne answered ${status} for /collections/messages`,
+      });
     }
   });
 
@@ -155,6 +156,8 @@ describe('create', () => {
       throw new TypeError('fetch failed');
     }) as typeof globalThis.fetch;
     await rejects(createOhne({ api: 'http://api.test', fetch }).create('Messages', {}), {
+      name: 'APIError',
+      status: 0,
       message: 'fetch failed',
     });
   });

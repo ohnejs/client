@@ -1,4 +1,4 @@
-/** @import { ConnectOptions, CreateOptions, CreateResult, ListOptions, Ohne, OhneOptions, Preview, ReadOptions, RecordPage, Refused, Resolved, ResolveOptions, RichText, RichTextMark, WebhookEvent } from './index.d.ts' */
+/** @import { API, APIOptions, ConnectOptions, CreateOptions, CreateResult, ListOptions, LoginOutcome, Ohne, OhneOptions, Preview, ReadOptions, RecordPage, Refused, Resolved, ResolveOptions, RichText, RichTextMark, WebhookEvent } from './index.d.ts' */
 
 const READ_PARAMS = ['select', 'locale'];
 const LIST_PARAMS = ['where', 'order', 'select', 'page', 'perPage', 'locale'];
@@ -29,9 +29,11 @@ export function createOhne(options) {
     const headers = new Headers(init.headers);
     if (token) headers.set('ohne-preview', token);
     const url = query ? `${path}?${query}` : path;
-    const response = await send(`${api}${url}`, { ...init, headers });
+    const response = await reach(send, `${api}${url}`, { ...init, headers });
     if (missing && response.status === 404) return undefined;
-    if (!response.ok) throw new Error(`ohne answered ${response.status} for ${url}`);
+    if (!response.ok) {
+      throw await answerError(response, `ohne answered ${response.status} for ${url}`);
+    }
     return response.json();
   }
 
@@ -139,13 +141,20 @@ export function createOhne(options) {
       headers.set('content-type', 'application/json');
       const path = `/collections/${segmentOf(collection)}`;
       const body = JSON.stringify(input);
-      const response = await send(`${api}${path}`, { ...init, method: 'POST', headers, body });
+      const response = await reach(send, `${api}${path}`, {
+        ...init,
+        method: 'POST',
+        headers,
+        body,
+      });
       if (response.ok) {
         const { UUID } = await response.json();
         return typeof UUID === 'string' ? { ok: true, UUID } : { ok: true };
       }
       const { status } = response;
-      if (!REFUSALS.has(status)) throw new Error(`ohne answered ${status} for ${path}`);
+      if (!REFUSALS.has(status)) {
+        throw await answerError(response, `ohne answered ${status} for ${path}`);
+      }
       // A proxy in front of the API may refuse with an HTML page.
       const refusal = await response.json().catch(() => undefined);
       return {
@@ -218,19 +227,247 @@ function readsAs(token) {
 }
 
 /**
- * Percent-encodes control and non-ASCII characters and those the grammar reserves.
+ * Percent-encodes control and non-ASCII characters, those the grammar reserves, and `=` under `equals`.
  *
  * @param {string} text
+ * @param {boolean} [equals]
  * @returns {string}
  */
-function encodeText(text) {
+function encodeText(text, equals = false) {
   let out = '';
   for (const char of text.toWellFormed()) {
     const code = /** @type {number} */ (char.codePointAt(0));
-    const plain = code >= 0x20 && code <= 0x7e && !URL_RESERVED.includes(char);
+    const reserved = URL_RESERVED.includes(char) || (equals && char === '=');
+    const plain = code >= 0x20 && code <= 0x7e && !reserved;
     out += plain ? char : char === "'" ? '%27' : encodeURIComponent(char);
   }
   return out;
+}
+
+/**
+ * Writes a query in ohne's URL grammar, so `parseSearchParams` reads it back as the same object.
+ * A key whose value is `undefined` is dropped.
+ *
+ * @param {Record<string, unknown>} query
+ * @returns {string}
+ */
+function stringifyQuery(query) {
+  const pairs = Object.entries(query)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${encodeText(key, true)}=${encodeParam(value)}`);
+  // `parseSearchParams` strips a leading `?` as the query prefix.
+  return pairs.join('&').replace(/^\?/, '%3F');
+}
+
+/**
+ * @extends {Error}
+ */
+export class APIError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ status: number, data?: unknown, cause?: unknown }} options
+   */
+  constructor(message, options) {
+    super(message, options);
+    const { status, data } = options;
+    this.name = 'APIError';
+    this.status = status;
+    this.data = data;
+    const errors =
+      status === 422 && isPlainObject(data) && isPlainObject(data.errors) ? data.errors : {};
+    this.errors = /** @type {Partial<Record<string, string>>} */ ({ ...errors });
+  }
+}
+
+/**
+ * Sends a request, turning a failure to get any answer into an `APIError` with status `0`.
+ * An aborted request rejects with the abort reason itself.
+ *
+ * @param {typeof fetch} send
+ * @param {string} url
+ * @param {RequestInit} init
+ * @returns {Promise<Response>}
+ */
+async function reach(send, url, init) {
+  try {
+    return await send(url, init);
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new APIError(message, { status: 0, cause: error });
+  }
+}
+
+/**
+ * An error answer's `{ statusCode, message, data }` body, or `{}` when it is no JSON object.
+ *
+ * @param {Response} response
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function errorBody(response) {
+  // A proxy in front of the API may answer with an HTML page.
+  const body = await response.json().catch(() => undefined);
+  return isPlainObject(body) ? body : {};
+}
+
+/**
+ * The `APIError` of a failed answer, carrying its body's `data`.
+ *
+ * @param {Response} response
+ * @param {string} message
+ * @returns {Promise<APIError>}
+ */
+async function answerError(response, message) {
+  const { data } = await errorBody(response);
+  return new APIError(message, { status: response.status, data });
+}
+
+const ROUTE_PARAM = /\[(\.\.\.)?([A-Za-z_][A-Za-z0-9_]*)\]|:([A-Za-z_][A-Za-z0-9_]*)/g;
+const JSON_TYPE = /^application\/(?:[^;]*\+)?json\s*(?:;|$)/i;
+const NULL_BODY_STATUSES = new Set([204, 205]);
+
+/**
+ * Splits a route id into its method and path; a bare path has no method.
+ *
+ * @param {string} id
+ * @returns {{ method?: string, path: string }}
+ */
+function parseRouteID(id) {
+  const separator = id.startsWith('/') ? -1 : id.indexOf(' /');
+  if (separator === -1) return { path: id };
+  return { method: id.slice(0, separator), path: id.slice(separator + 1) };
+}
+
+/**
+ * Fills each param of a route pattern with its value, percent-encoded.
+ * A missing param throws, and so does a value that would change the path's shape.
+ *
+ * @param {string} pattern
+ * @param {Record<string, string>} params
+ * @returns {string}
+ */
+function fillRoute(pattern, params) {
+  return pattern.replace(ROUTE_PARAM, (_, catchAll, bracketed, colon) => {
+    const name = bracketed ?? colon;
+    const value = params[name];
+    if (value === undefined) throw new Error(`Missing route param \`${name}\``);
+    const segments = catchAll === '...' ? value.split('/') : [value];
+    if (!segments.every((segment) => !segment.includes('/') && !DOT_SEGMENT.test(segment))) {
+      throw new Error(`Invalid route param \`${name}\`: ${JSON.stringify(value)}`);
+    }
+    return value.split('/').map(encodeURIComponent).join('/');
+  });
+}
+
+/**
+ * A 2xx answer's value: `null` when empty, the parsed body when JSON, else the `Response` itself.
+ *
+ * @param {Response} response
+ * @returns {Promise<unknown>}
+ */
+async function readAnswer(response) {
+  if (NULL_BODY_STATUSES.has(response.status) || response.body === null) return null;
+  if (response.headers.get('content-length') === '0') return null;
+  return JSON_TYPE.test(response.headers.get('content-type') ?? '') ? response.json() : response;
+}
+
+/**
+ * The outcome a refused `POST /auth/login` answer reads as.
+ *
+ * @param {Response} response
+ * @returns {LoginOutcome}
+ */
+function loginRefusal(response) {
+  const { status } = response;
+  if (status === 401) return { kind: 'invalid' };
+  if (status === 429 || status === 503) {
+    return { kind: 'throttled', retryAfter: Number(response.headers.get('Retry-After')) || 0 };
+  }
+  return { kind: 'failed', status };
+}
+
+/**
+ * @param {APIOptions} options
+ * @returns {API}
+ */
+export function createAPI(options) {
+  const api = options.api.replace(/\/+$/, '');
+  const send = options.fetch ?? globalThis.fetch;
+
+  /**
+   * Sends a request to a route with `fetchInit` merged in.
+   * It answers the raw `Response`, and the method and path it went to for an error message.
+   *
+   * @param {string} route
+   * @param {Record<string, any>} callOptions
+   * @returns {Promise<{ response: Response, target: string }>}
+   */
+  async function request(route, callOptions) {
+    const { params = {}, query, body, headers, signal } = callOptions;
+    const { method = callOptions.method, path: pattern } = parseRouteID(route);
+    const search = query === undefined ? '' : stringifyQuery(query);
+    const path = fillRoute(pattern, params);
+    const init = options.fetchInit ?? {};
+    const merged = new Headers(init.headers);
+    new Headers(headers).forEach((value, name) => merged.set(name, value));
+    /** @type {RequestInit} */
+    const sent = { credentials: 'include', ...init, headers: merged };
+    if (method) sent.method = method;
+    if (signal) sent.signal = signal;
+    if (body !== undefined) {
+      merged.set('content-type', 'application/json');
+      sent.body = JSON.stringify(body);
+    }
+    const url = `${api}${path}${search ? `?${search}` : ''}`;
+    const response = await reach(send, url, sent);
+    return { response, target: `${sent.method ?? 'GET'} ${path}` };
+  }
+
+  /**
+   * @param {string} route
+   * @param {Record<string, any>} [callOptions]
+   * @returns {Promise<any>}
+   */
+  async function call(route, callOptions = {}) {
+    const { response, target } = await request(route, callOptions);
+    if (response.ok) return readAnswer(response);
+    const { status } = response;
+    const answer = await errorBody(response);
+    const message =
+      typeof answer.message === 'string' && answer.message !== ''
+        ? answer.message
+        : `ohne answered ${status} for ${target}`;
+    throw new APIError(message, { status, data: answer.data });
+  }
+
+  return {
+    call,
+
+    async login({ email, password, remember = false }) {
+      /** @type {Response} */
+      let response;
+      try {
+        const body = { email, password, remember };
+        ({ response } = await request('POST /auth/login', { body }));
+      } catch {
+        return { kind: 'unreachable' };
+      }
+      if (!response.ok) return loginRefusal(response);
+      try {
+        return { kind: 'signed-in', user: await response.json() };
+      } catch {
+        return { kind: 'failed', status: response.status };
+      }
+    },
+
+    async logout() {
+      await call('POST /auth/logout');
+    },
+
+    user() {
+      return call('GET /auth/me');
+    },
+  };
 }
 
 /**
